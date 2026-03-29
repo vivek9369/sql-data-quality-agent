@@ -1,0 +1,100 @@
+name: sql-data-quality-agent
+version: "1.0.0"
+description: >
+  An OpenEnv environment where an AI agent acts as a Data Quality Engineer.
+  Given a dirty SQLite database (NULL values, duplicate rows, type errors,
+  foreign-key violations), the agent issues SQL statements to bring the
+  dataset to a target quality threshold. Three tasks of increasing difficulty
+  provide a full evaluation spectrum from easy to hard.
+
+author: Vivek Kumar Maurya
+email: vivekmaurya938@gmail.com
+tags:
+  - data-engineering
+  - sql
+  - data-quality
+  - real-world
+  - openenv
+
+hardware:
+  tier: cpu-basic
+  vCPU: 2
+  memory: 8GB
+
+tasks:
+  - id: null_patrol
+    name: "Null Patrol"
+    difficulty: easy
+    description: >
+      Fill NULL email and phone values in the customers table with
+      placeholder values. Target: null ratio < 5%.
+    max_steps: 15
+    success_threshold: 0.95
+
+  - id: duplicate_destroyer
+    name: "Duplicate Destroyer"
+    difficulty: medium
+    description: >
+      Remove duplicate rows in the orders table, keeping the earliest
+      entry per order_id. Target: duplicate ratio < 5%.
+    max_steps: 20
+    success_threshold: 0.95
+
+  - id: constraint_cascade
+    name: "Constraint Cascade"
+    difficulty: hard
+    description: >
+      Fix three categories of issues in a products+inventory database:
+      price strings with '$' prefix, orphan FK rows, and negative quantities.
+      Target: composite quality score >= 0.90.
+    max_steps: 30
+    success_threshold: 0.90
+
+endpoints:
+  health: GET /health
+  tasks: GET /tasks
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  docs: GET /docs
+
+observation_space:
+  type: object
+  description: >
+    Structured observation containing table schema, sample rows,
+    and a computed quality report with per-dimension metrics.
+  fields:
+    - task_id: string
+    - task_description: string
+    - table_schema: "dict[table_name → dict[column → type]]"
+    - sample_rows: "dict[table_name → list[row_dict]] (up to 20 rows)"
+    - quality_report:
+        null_ratio: float
+        duplicate_ratio: float
+        type_error_ratio: float
+        constraint_violation_ratio: float
+        value_error_ratio: float
+        overall_score: "float (0.0 – 1.0)"
+    - last_action_result: "string ('success' or error message)"
+    - step: integer
+    - done: boolean
+    - hints: "list[string]"
+
+action_space:
+  type: object
+  description: >
+    A single SQL statement the agent wishes to execute against the database.
+    Any valid SQLite SQL is accepted; errors are returned as observations.
+  fields:
+    - sql: "string — the SQL statement (UPDATE/DELETE/INSERT/SELECT)"
+    - rationale: "string — optional agent reasoning (logged, not executed)"
+
+reward_function:
+  type: dense
+  range: "[-1.0, +2.0] per step, cumulative over episode"
+  description: >
+    progress_reward = (score_delta) × 10
+    milestone_bonus = 0.05–0.30 for large single-step improvements
+    error_penalty = -0.05 per SQL error
+    destructive_penalty = -0.5 to -1.0 for DROP or unguarded DELETE
+    efficiency_bonus = 0.05 × remaining_steps when done early

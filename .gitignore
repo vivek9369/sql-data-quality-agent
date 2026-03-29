@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Environment files (never commit real secrets)
+.env
+*.env
+
+# Baseline run output
+baseline_results.json
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.dockerignore
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Temporary test files
+verify_out.txt
+test_output.txt
