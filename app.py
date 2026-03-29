@@ -15,7 +15,7 @@ Endpoints:
 import os
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -59,6 +59,10 @@ class ResetRequest(BaseModel):
     task_id: str = "null_patrol"
     seed: int = 42
 
+    class Config:
+        # Allow the body to be entirely absent (validator sends no body)
+        extra = "ignore"
+
 
 class StepRequest(BaseModel):
     sql: str
@@ -89,13 +93,24 @@ def get_tasks():
 
 
 @app.post("/reset", response_model=DataQualityObservation, tags=["environment"])
-def reset(request: ResetRequest):
+async def reset(request: Request):
     """
     Start a new episode for the given task.
     Returns the initial observation (table schema, sample rows, quality report).
+    Accepts: full JSON body, partial body, empty body, or NO body at all (uses defaults).
     """
+    task_id = "null_patrol"
+    seed = 42
     try:
-        obs = env.reset(task_id=request.task_id, seed=request.seed)
+        body = await request.body()
+        if body:
+            data = await request.json()
+            task_id = data.get("task_id", task_id)
+            seed = int(data.get("seed", seed))
+    except Exception:
+        pass  # No/invalid body — use defaults
+    try:
+        obs = env.reset(task_id=task_id, seed=seed)
         return obs
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
