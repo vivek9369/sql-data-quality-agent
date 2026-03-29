@@ -12,7 +12,6 @@ tags:
   - sql
   - reinforcement-learning
   - agent
-short_description: OpenEnv SQL Data Quality Agent — clean dirty databases with AI
 ---
 
 # SQL Data Quality Agent — OpenEnv
