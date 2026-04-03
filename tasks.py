@@ -260,4 +260,4 @@ def get_task(task_id: str) -> Optional[Dict[str, Any]]:
 
 
 def list_tasks():
-    return [v["meta"].dict() for v in TASK_REGISTRY.values()]
+    return [v["meta"].model_dump() for v in TASK_REGISTRY.values()]

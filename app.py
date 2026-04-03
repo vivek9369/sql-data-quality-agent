@@ -80,6 +80,12 @@ class StepResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/", tags=["meta"])
+def root():
+    """Root endpoint — required by HF Spaces health probe."""
+    return {"status": "ok", "environment": "sql-data-quality-agent", "version": "1.0.0"}
+
+
 @app.get("/health", tags=["meta"])
 def health_check():
     """Health check — must return 200 for HF Space validation."""

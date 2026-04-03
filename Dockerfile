@@ -48,8 +48,8 @@ ENV ENV_SERVER_URL=http://localhost:7860
 EXPOSE 7860
 
 # ------------ Health check ------------
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD curl -f http://localhost:7860/health || exit 1
 
 # ------------ Start server ------------
 # Uses uvicorn directly for clean signal handling
