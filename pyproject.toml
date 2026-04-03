@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "sql-data-quality-agent"
+version = "1.0.0"
+description = "An OpenEnv environment where an AI agent acts as a Data Quality Engineer, fixing dirty SQL databases through iterative SQL statements."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Vivek Kumar Maurya", email = "vivekmaurya938@gmail.com" }
+]
+license = { text = "MIT" }
+keywords = ["openenv", "reinforcement-learning", "data-quality", "sql", "agent"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "openenv-core",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "pydantic>=2.0.0",
+    "openai>=1.14.0",
+    "requests>=2.31.0",
+    "pyyaml>=6.0",
+]
+
+[project.urls]
+"Homepage" = "https://huggingface.co/spaces/MauryaVivek/sql-data-quality-agent"
+"Repository" = "https://github.com/vivek9369/sql-data-quality-agent"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
+exclude = ["__pycache__", "*.pyc"]

@@ -31,6 +31,7 @@ COPY data_generator.py .
 COPY reward.py .
 COPY inference.py .
 COPY openenv.yaml .
+COPY pyproject.toml .
 COPY README.md .
 
 # ------------ Non-root user for security ------------
