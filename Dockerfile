@@ -33,6 +33,7 @@ COPY inference.py .
 COPY openenv.yaml .
 COPY pyproject.toml .
 COPY README.md .
+COPY server/ ./server/
 
 # ------------ Non-root user for security ------------
 RUN useradd -m -u 1000 appuser && chown -R appuser /app

@@ -83,13 +83,39 @@ class StepResponse(BaseModel):
 @app.get("/", tags=["meta"])
 def root():
     """Root endpoint — required by HF Spaces health probe."""
-    return {"status": "ok", "environment": "sql-data-quality-agent", "version": "1.0.0"}
+    return {"status": "healthy", "environment": "sql-data-quality-agent", "version": "1.0.0"}
 
 
 @app.get("/health", tags=["meta"])
 def health_check():
-    """Health check — must return 200 for HF Space validation."""
-    return {"status": "ok", "environment": "sql-data-quality-agent", "version": "1.0.0"}
+    """Health check — openenv validate expects {"status": "healthy"}."""
+    return {"status": "healthy", "environment": "sql-data-quality-agent", "version": "1.0.0"}
+
+
+@app.get("/metadata", tags=["meta"])
+def metadata():
+    """Metadata endpoint — openenv validate expects name + description."""
+    return {
+        "name": "sql-data-quality-agent",
+        "description": (
+            "An OpenEnv environment where an AI agent acts as a Data Quality Engineer. "
+            "Given a dirty SQLite database (NULL values, duplicate rows, type errors, "
+            "foreign-key violations), the agent issues SQL statements to bring the "
+            "dataset to a target quality threshold."
+        ),
+        "version": "1.0.0",
+        "author": "Vivek Kumar Maurya",
+    }
+
+
+@app.get("/schema", tags=["meta"])
+def schema():
+    """Schema endpoint — openenv validate expects action, observation, state JSON schemas."""
+    return {
+        "action": DataQualityAction.model_json_schema(),
+        "observation": DataQualityObservation.model_json_schema(),
+        "state": DataQualityState.model_json_schema(),
+    }
 
 
 @app.get("/tasks", tags=["meta"])

@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "sql-data-quality-agent"
@@ -27,6 +27,9 @@ dependencies = [
     "requests>=2.31.0",
     "pyyaml>=6.0",
 ]
+
+[project.scripts]
+server = "server.app:main"
 
 [project.urls]
 "Homepage" = "https://huggingface.co/spaces/MauryaVivek/sql-data-quality-agent"

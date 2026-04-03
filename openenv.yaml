@@ -52,6 +52,8 @@ tasks:
 
 endpoints:
   health: GET /health
+  metadata: GET /metadata
+  schema: GET /schema
   tasks: GET /tasks
   reset: POST /reset
   step: POST /step
