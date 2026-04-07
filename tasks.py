@@ -15,6 +15,11 @@ from typing import Dict, Any, Callable, Optional
 from pydantic import BaseModel
 
 
+def clamp_score(score: float, low: float = 0.01, high: float = 0.99) -> float:
+    """Clamp score to (0, 1) exclusive — required by OpenEnv Phase 2 validator."""
+    return max(low, min(high, score))
+
+
 class QualityReport(BaseModel):
     null_ratio: float = 0.0
     duplicate_ratio: float = 0.0
@@ -35,7 +40,7 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
     cur.execute("SELECT COUNT(*) FROM customers")
     total = cur.fetchone()[0]
     if total == 0:
-        return QualityReport(overall_score=0.0)
+        return QualityReport(overall_score=clamp_score(0.0))
 
     cur.execute("SELECT COUNT(*) FROM customers WHERE email IS NULL")
     null_emails = cur.fetchone()[0]
@@ -47,7 +52,7 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
     total_nulls = null_emails + null_phones
     null_ratio = total_nulls / total_nullable_fields if total_nullable_fields > 0 else 0.0
 
-    score = max(0.0, 1.0 - null_ratio)
+    score = clamp_score(max(0.0, 1.0 - null_ratio))
     return QualityReport(
         null_ratio=round(null_ratio, 4),
         overall_score=round(score, 4),
@@ -69,7 +74,7 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     cur.execute("SELECT COUNT(*) FROM orders")
     total = cur.fetchone()[0]
     if total == 0:
-        return QualityReport(overall_score=0.0)
+        return QualityReport(overall_score=clamp_score(0.0))
 
     # Count rows that are NOT the earliest row for their order_id
     cur.execute("""
@@ -81,7 +86,7 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     duplicate_count = cur.fetchone()[0]
 
     duplicate_ratio = duplicate_count / total if total > 0 else 0.0
-    score = max(0.0, 1.0 - duplicate_ratio)
+    score = clamp_score(max(0.0, 1.0 - duplicate_ratio))
 
     return QualityReport(
         duplicate_ratio=round(duplicate_ratio, 4),
@@ -150,7 +155,7 @@ def grade_constraint_cascade(conn: sqlite3.Connection) -> QualityReport:
     fk_score    = 1.0 - fk_ratio
     neg_score   = 1.0 - neg_ratio
     case_score  = 1.0 - case_error_ratio
-    overall = (0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score)
+    overall = clamp_score((0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score))
 
     return QualityReport(
         type_error_ratio=round(type_error_ratio, 4),
