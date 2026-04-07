@@ -21,12 +21,12 @@ def clamp_score(score: float, low: float = 0.01, high: float = 0.99) -> float:
 
 
 class QualityReport(BaseModel):
-    null_ratio: float = 0.0
-    duplicate_ratio: float = 0.0
-    type_error_ratio: float = 0.0
-    constraint_violation_ratio: float = 0.0
-    value_error_ratio: float = 0.0
-    overall_score: float = 0.0
+    null_ratio: float = 0.01
+    duplicate_ratio: float = 0.01
+    type_error_ratio: float = 0.01
+    constraint_violation_ratio: float = 0.01
+    value_error_ratio: float = 0.01
+    overall_score: float = 0.01
     details: Dict[str, Any] = {}
 
 
@@ -54,7 +54,7 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
 
     score = clamp_score(max(0.0, 1.0 - null_ratio))
     return QualityReport(
-        null_ratio=round(null_ratio, 4),
+        null_ratio=clamp_score(round(null_ratio, 4)),
         overall_score=round(score, 4),
         details={
             "total_rows": total,
@@ -89,7 +89,7 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     score = clamp_score(max(0.0, 1.0 - duplicate_ratio))
 
     return QualityReport(
-        duplicate_ratio=round(duplicate_ratio, 4),
+        duplicate_ratio=clamp_score(round(duplicate_ratio, 4)),
         overall_score=round(score, 4),
         details={
             "total_rows": total,
@@ -158,9 +158,9 @@ def grade_constraint_cascade(conn: sqlite3.Connection) -> QualityReport:
     overall = clamp_score((0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score))
 
     return QualityReport(
-        type_error_ratio=round(type_error_ratio, 4),
-        constraint_violation_ratio=round(fk_ratio, 4),
-        value_error_ratio=round(neg_ratio, 4),
+        type_error_ratio=clamp_score(round(type_error_ratio, 4)),
+        constraint_violation_ratio=clamp_score(round(fk_ratio, 4)),
+        value_error_ratio=clamp_score(round(neg_ratio, 4)),
         overall_score=round(overall, 4),
         details={
             "total_products": total_products,

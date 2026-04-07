@@ -261,7 +261,7 @@ def run_task(task_id: str, seed: int = 42) -> None:
 
             except Exception as step_err:
                 error = str(step_err)
-                log_step(step=step, action=sql, reward=0.0, done=True, error=error)
+                log_step(step=step, action=sql, reward=clamp_val(0.0), done=True, error=error)
                 steps_taken = step
                 break
 
