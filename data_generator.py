@@ -78,7 +78,7 @@ def generate_null_patrol_db(seed: int = 42) -> sqlite3.Connection:
 def generate_duplicate_destroyer_db(seed: int = 42) -> sqlite3.Connection:
     """200-row orders table; ~15% are duplicate order records (same order_id)."""
     rng = random.Random(seed)
-    conn = sqlite3.connect(":memory:")
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
@@ -135,7 +135,7 @@ def generate_constraint_cascade_db(seed: int = 42) -> sqlite3.Connection:
       - ~25% product category names have wrong casing (e.g. 'electronics', 'BOOKS')
     """
     rng = random.Random(seed)
-    conn = sqlite3.connect(":memory:")
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
