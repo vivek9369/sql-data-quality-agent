@@ -93,7 +93,7 @@ action_space:
 
 reward_function:
   type: dense
-  range: "[-1.0, +2.0] per step, cumulative over episode"
+  range: "(0.0, 1.0) exclusive per step, clamped to (0.01, 0.99)"
   description: >
     progress_reward = (score_delta) × 10
     milestone_bonus = 0.05–0.30 for large single-step improvements

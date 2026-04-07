@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
-from tasks import TASK_REGISTRY, QualityReport, get_task
+from tasks import TASK_REGISTRY, QualityReport, get_task, clamp_score
 from data_generator import TASK_DB_GENERATORS
 from reward import compute_reward
 
@@ -110,6 +110,7 @@ class DataQualityEnv:
 
         # Initial quality score
         report = task_data["grader"](self._conn)
+        report.overall_score = clamp_score(report.overall_score)
         self._prev_score = report.overall_score
 
         return self._build_observation(report, last_result="", task_data=task_data)
@@ -129,7 +130,8 @@ class DataQualityEnv:
 
         # Compute new quality score
         report = task_data["grader"](self._conn)
-        curr_score = report.overall_score
+        curr_score = clamp_score(report.overall_score)
+        report.overall_score = curr_score  # ensure observation also has clamped value
 
         # Compute reward
         reward = compute_reward(
@@ -141,6 +143,8 @@ class DataQualityEnv:
             max_steps=self._max_steps,
             success_threshold=task_data["meta"].success_threshold,
         )
+        # Clamp reward to (0, 1) exclusive — Phase 2 requirement
+        reward = clamp_score(reward)
         self._cumulative_reward += reward
         self._prev_score = curr_score
 
@@ -177,8 +181,8 @@ class DataQualityEnv:
             task_id=self._task_id,
             step=self._step,
             max_steps=self._max_steps,
-            current_score=self._prev_score,
-            cumulative_reward=round(self._cumulative_reward, 4),
+            current_score=clamp_score(self._prev_score),
+            cumulative_reward=clamp_score(round(self._cumulative_reward, 4)),
             tables=tables,
             db_row_counts=row_counts,
         )

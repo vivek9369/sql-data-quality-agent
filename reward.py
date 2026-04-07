@@ -79,6 +79,8 @@ def compute_reward(
         efficiency = 0.05 * remaining_steps  # small bonus per step saved
 
     total = progress + milestone + error_penalty + destructive_penalty + efficiency
+    # Clamp reward to (0, 1) exclusive — required by OpenEnv Phase 2 validator
+    total = max(0.01, min(0.99, total))
     return round(total, 4)
 
 

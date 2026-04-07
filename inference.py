@@ -64,6 +64,14 @@ MAX_TOKENS = 256
 client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 
 # ---------------------------------------------------------------------------
+# Score clamping — Phase 2 requires all scores strictly in (0, 1)
+# ---------------------------------------------------------------------------
+
+def clamp_val(v: float, low: float = 0.01, high: float = 0.99) -> float:
+    """Clamp value to (0, 1) exclusive range."""
+    return max(low, min(high, v))
+
+# ---------------------------------------------------------------------------
 # Mandatory stdout log helpers
 # ---------------------------------------------------------------------------
 
@@ -82,15 +90,17 @@ def log_step(
     action_clean = action.replace("\n", " ").replace("\r", "").strip()
     error_val = error if error else "null"
     done_val = str(done).lower()
+    clamped_reward = clamp_val(reward)
     print(
         f"[STEP] step={step} action={action_clean!r} "
-        f"reward={reward:.2f} done={done_val} error={error_val}",
+        f"reward={clamped_reward:.2f} done={done_val} error={error_val}",
         flush=True,
     )
 
 
 def log_end(success: bool, steps: int, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    clamped_rewards = [clamp_val(r) for r in rewards]
+    rewards_str = ",".join(f"{r:.2f}" for r in clamped_rewards)
     success_val = str(success).lower()
     print(
         f"[END] success={success_val} steps={steps} rewards={rewards_str}",
@@ -232,7 +242,7 @@ def run_task(task_id: str, seed: int = 42) -> None:
             try:
                 result = env_step(sql=sql, rationale=f"step {step}")
                 obs = result["observation"]
-                reward = result["reward"]
+                reward = clamp_val(result["reward"])
                 done = result["done"]
                 steps_taken = step
                 rewards.append(reward)
