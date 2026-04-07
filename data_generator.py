@@ -35,7 +35,7 @@ def _rand_name(rng: random.Random) -> str:
 def generate_null_patrol_db(seed: int = 42) -> sqlite3.Connection:
     """50-row customers table; ~20% email and phone values are NULL."""
     rng = random.Random(seed)
-    conn = sqlite3.connect(":memory:")
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
