@@ -17,7 +17,17 @@ from pydantic import BaseModel, field_validator
 
 def clamp_score(score: float, low: float = 0.01, high: float = 0.99) -> float:
     """Clamp score to (0, 1) exclusive — required by OpenEnv Phase 2 validator."""
-    return max(low, min(high, score))
+    try:
+        score = float(score)
+    except (TypeError, ValueError):
+        score = 0.01
+    clamped = max(low, min(high, score))
+    # After rounding that may happen elsewhere, ensure we never hit exact 0 or 1
+    if clamped <= 0.0:
+        clamped = low
+    if clamped >= 1.0:
+        clamped = high
+    return clamped
 
 
 class QualityReport(BaseModel):
@@ -45,7 +55,13 @@ class QualityReport(BaseModel):
             v = float(v)
         except (TypeError, ValueError):
             v = 0.01
-        return max(0.01, min(0.99, v))
+        clamped = max(0.01, min(0.99, v))
+        # Double-check after potential float weirdness
+        if clamped <= 0.0:
+            clamped = 0.01
+        if clamped >= 1.0:
+            clamped = 0.99
+        return clamped
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +74,7 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
     cur.execute("SELECT COUNT(*) FROM customers")
     total = cur.fetchone()[0]
     if total == 0:
-        return QualityReport(overall_score=clamp_score(0.0))
+        return QualityReport(overall_score=0.01)
 
     cur.execute("SELECT COUNT(*) FROM customers WHERE email IS NULL")
     null_emails = cur.fetchone()[0]
@@ -70,9 +86,12 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
     total_nulls = null_emails + null_phones
     null_ratio = total_nulls / total_nullable_fields if total_nullable_fields > 0 else 0.0
 
-    score = clamp_score(1.0 - null_ratio)
+    # Raw score before clamping
+    raw_score = 1.0 - null_ratio
+    score = clamp_score(raw_score)
+
     return QualityReport(
-        null_ratio=round(null_ratio, 4),
+        null_ratio=clamp_score(round(null_ratio, 4)),
         overall_score=clamp_score(round(score, 4)),
         details={
             "total_rows": total,
@@ -92,7 +111,7 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     cur.execute("SELECT COUNT(*) FROM orders")
     total = cur.fetchone()[0]
     if total == 0:
-        return QualityReport(overall_score=clamp_score(0.0))
+        return QualityReport(overall_score=0.01)
 
     # Count rows that are NOT the earliest row for their order_id
     cur.execute("""
@@ -104,10 +123,11 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     duplicate_count = cur.fetchone()[0]
 
     duplicate_ratio = duplicate_count / total if total > 0 else 0.0
-    score = clamp_score(1.0 - duplicate_ratio)
+    raw_score = 1.0 - duplicate_ratio
+    score = clamp_score(raw_score)
 
     return QualityReport(
-        duplicate_ratio=round(duplicate_ratio, 4),
+        duplicate_ratio=clamp_score(round(duplicate_ratio, 4)),
         overall_score=clamp_score(round(score, 4)),
         details={
             "total_rows": total,
@@ -176,9 +196,9 @@ def grade_constraint_cascade(conn: sqlite3.Connection) -> QualityReport:
     overall = (0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score)
 
     return QualityReport(
-        type_error_ratio=round(type_error_ratio, 4),
-        constraint_violation_ratio=round(fk_ratio, 4),
-        value_error_ratio=round(neg_ratio, 4),
+        type_error_ratio=clamp_score(round(type_error_ratio, 4)),
+        constraint_violation_ratio=clamp_score(round(fk_ratio, 4)),
+        value_error_ratio=clamp_score(round(neg_ratio, 4)),
         overall_score=clamp_score(round(overall, 4)),
         details={
             "total_products": total_products,
@@ -261,7 +281,7 @@ TASK_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "(2) ~15% of inventory rows reference non-existent product_ids (FK violations), "
                 "(3) ~10% of inventory quantities are negative, "
                 "(4) ~25% of product category names have inconsistent casing (e.g. 'electronics', 'BOOKS'). "
-                "Fix all four categories to reach a composite quality score ≥ 0.90."
+                "Fix all four categories to reach a composite quality score >= 0.90."
             ),
             max_steps=30,
             success_threshold=0.90,

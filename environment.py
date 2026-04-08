@@ -4,9 +4,9 @@ environment.py
 Core OpenEnv environment class for the SQL Data Quality Agent.
 
 Implements the standard OpenEnv interface:
-  - reset(task_id, seed) → DataQualityObservation
-  - step(action) → (DataQualityObservation, reward, done, info)
-  - state() → DataQualityState
+  - reset(task_id, seed) -> DataQualityObservation
+  - step(action) -> (DataQualityObservation, reward, done, info)
+  - state() -> DataQualityState
 
 All models are typed Pydantic BaseModels for spec compliance.
 """
@@ -37,10 +37,10 @@ class DataQualityObservation(BaseModel):
     task_id: str
     task_description: str
     table_schema: Dict[str, Dict[str, str]] = Field(
-        description="Table name → {column: type}"
+        description="Table name -> {column: type}"
     )
     sample_rows: Dict[str, List[Dict[str, Any]]] = Field(
-        description="Table name → list of up to 20 sample rows"
+        description="Table name -> list of up to 20 sample rows"
     )
     quality_report: QualityReport
     last_action_result: str = Field(default="", description="'success' or error message")
@@ -70,7 +70,7 @@ class DataQualityEnv:
     SQL Data Quality Agent Environment.
 
     The agent receives a dirty SQLite database and must issue SQL statements
-    to improve its data quality score (0.0 → 1.0).
+    to improve its data quality score (0.0 -> 1.0).
     """
 
     def __init__(self):
@@ -79,7 +79,7 @@ class DataQualityEnv:
         self._episode_id: Optional[str] = None
         self._step: int = 0
         self._max_steps: int = 0
-        self._prev_score: float = 0.0
+        self._prev_score: float = 0.01
         self._cumulative_reward: float = 0.0
         self._done: bool = False
         self._seed: int = 42
@@ -110,6 +110,7 @@ class DataQualityEnv:
 
         # Initial quality score
         report = task_data["grader"](self._conn)
+        # Ensure clamped — grader already clamps but be safe
         report.overall_score = clamp_score(report.overall_score)
         self._prev_score = report.overall_score
 
@@ -133,7 +134,7 @@ class DataQualityEnv:
         curr_score = clamp_score(report.overall_score)
         report.overall_score = curr_score  # ensure observation also has clamped value
 
-        # Compute reward
+        # Compute reward — already returns value in (0.01, 0.99)
         reward = compute_reward(
             prev_score=self._prev_score,
             curr_score=curr_score,
@@ -143,7 +144,7 @@ class DataQualityEnv:
             max_steps=self._max_steps,
             success_threshold=task_data["meta"].success_threshold,
         )
-        # Clamp reward to (0, 1) exclusive — Phase 2 requirement
+        # Belt-and-suspenders: clamp once more
         reward = clamp_score(reward)
         self._cumulative_reward += reward
         self._prev_score = curr_score
@@ -153,7 +154,7 @@ class DataQualityEnv:
         self._done = (curr_score >= threshold) or (self._step >= self._max_steps)
 
         obs = self._build_observation(report, last_result=last_result, task_data=task_data)
-        # Final safety: clamp reward once more before returning
+        # Final safety clamp on reward before returning
         reward = clamp_score(reward)
         info = {
             "episode_id": self._episode_id,

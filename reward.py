@@ -40,16 +40,18 @@ def compute_reward(
     Compute step reward.
 
     Components:
-    - Progress bonus:  10× the quality score delta (main signal)
+    - Progress bonus:  10x the quality score delta (main signal)
     - Milestone bonus: extra reward for large improvements
     - Error penalty:   small penalty for SQL errors
     - Destructive penalty: large penalty for mass DELETE or DROP
     - Efficiency bonus: small bonus for finishing early
+
+    Returns a value strictly in (0, 1) — never exactly 0.0 or 1.0.
     """
     delta = curr_score - prev_score
 
     # --- Main progress signal ---
-    progress = delta * 10.0  # scaled so 0.1 improvement → +1.0 reward
+    progress = delta * 10.0  # scaled so 0.1 improvement -> +1.0 reward
 
     # --- Milestone bonus ---
     milestone = 0.0
@@ -79,9 +81,19 @@ def compute_reward(
         efficiency = 0.05 * remaining_steps  # small bonus per step saved
 
     total = progress + milestone + error_penalty + destructive_penalty + efficiency
+
     # Clamp reward to (0, 1) exclusive — required by OpenEnv Phase 2 validator
+    # Use 0.01 and 0.99 to ensure strictly between 0 and 1
     total = max(0.01, min(0.99, total))
-    return round(total, 4)
+    result = round(total, 4)
+
+    # Final safety after rounding: ensure still strictly in (0, 1)
+    if result <= 0.0:
+        result = 0.01
+    if result >= 1.0:
+        result = 0.99
+
+    return result
 
 
 def score_to_grade(score: float) -> str:
