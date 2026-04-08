@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from environment import DataQualityEnv, DataQualityAction, DataQualityObservation, DataQualityState
-from tasks import list_tasks
+from tasks import list_tasks, clamp_score
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -159,6 +159,8 @@ def step(request: StepRequest):
     try:
         action = DataQualityAction(sql=request.sql, rationale=request.rationale)
         obs, reward, done, info = env.step(action)
+        # Final safety: clamp reward at the API boundary
+        reward = clamp_score(reward)
         return StepResponse(observation=obs, reward=reward, done=done, info=info)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))

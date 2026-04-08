@@ -99,6 +99,9 @@ def log_step(
 
 
 def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+    # Guard: if no steps taken, emit at least one valid reward
+    if not rewards:
+        rewards = [0.01]
     clamped_rewards = [clamp_val(r) for r in rewards]
     rewards_str = ",".join(f"{r:.2f}" for r in clamped_rewards)
     success_val = str(success).lower()
@@ -255,12 +258,13 @@ def run_task(task_id: str, seed: int = 42) -> None:
                 log_step(step=step, action=sql, reward=reward, done=done, error=error)
 
                 if done:
-                    final_score = obs["quality_report"]["overall_score"]
+                    final_score = clamp_val(obs["quality_report"]["overall_score"])
                     success = final_score >= threshold
                     break
 
             except Exception as step_err:
                 error = str(step_err)
+                rewards.append(clamp_val(0.0))
                 log_step(step=step, action=sql, reward=clamp_val(0.0), done=True, error=error)
                 steps_taken = step
                 break

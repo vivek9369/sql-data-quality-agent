@@ -12,7 +12,7 @@ Each task defines:
 
 import sqlite3
 from typing import Dict, Any, Callable, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 def clamp_score(score: float, low: float = 0.01, high: float = 0.99) -> float:
@@ -28,6 +28,24 @@ class QualityReport(BaseModel):
     value_error_ratio: float = 0.01
     overall_score: float = 0.01
     details: Dict[str, Any] = {}
+
+    @field_validator(
+        "null_ratio",
+        "duplicate_ratio",
+        "type_error_ratio",
+        "constraint_violation_ratio",
+        "value_error_ratio",
+        "overall_score",
+        mode="before",
+    )
+    @classmethod
+    def _clamp_to_valid_range(cls, v: float) -> float:
+        """Auto-clamp every float field to (0, 1) exclusive — OpenEnv Phase 2 requirement."""
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = 0.01
+        return max(0.01, min(0.99, v))
 
 
 # ---------------------------------------------------------------------------
@@ -52,10 +70,10 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
     total_nulls = null_emails + null_phones
     null_ratio = total_nulls / total_nullable_fields if total_nullable_fields > 0 else 0.0
 
-    score = clamp_score(max(0.0, 1.0 - null_ratio))
+    score = clamp_score(1.0 - null_ratio)
     return QualityReport(
-        null_ratio=clamp_score(round(null_ratio, 4)),
-        overall_score=round(score, 4),
+        null_ratio=round(null_ratio, 4),
+        overall_score=clamp_score(round(score, 4)),
         details={
             "total_rows": total,
             "null_emails": null_emails,
@@ -86,11 +104,11 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     duplicate_count = cur.fetchone()[0]
 
     duplicate_ratio = duplicate_count / total if total > 0 else 0.0
-    score = clamp_score(max(0.0, 1.0 - duplicate_ratio))
+    score = clamp_score(1.0 - duplicate_ratio)
 
     return QualityReport(
-        duplicate_ratio=clamp_score(round(duplicate_ratio, 4)),
-        overall_score=round(score, 4),
+        duplicate_ratio=round(duplicate_ratio, 4),
+        overall_score=clamp_score(round(score, 4)),
         details={
             "total_rows": total,
             "duplicate_rows": duplicate_count,
@@ -155,13 +173,13 @@ def grade_constraint_cascade(conn: sqlite3.Connection) -> QualityReport:
     fk_score    = 1.0 - fk_ratio
     neg_score   = 1.0 - neg_ratio
     case_score  = 1.0 - case_error_ratio
-    overall = clamp_score((0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score))
+    overall = (0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score)
 
     return QualityReport(
-        type_error_ratio=clamp_score(round(type_error_ratio, 4)),
-        constraint_violation_ratio=clamp_score(round(fk_ratio, 4)),
-        value_error_ratio=clamp_score(round(neg_ratio, 4)),
-        overall_score=round(overall, 4),
+        type_error_ratio=round(type_error_ratio, 4),
+        constraint_violation_ratio=round(fk_ratio, 4),
+        value_error_ratio=round(neg_ratio, 4),
+        overall_score=clamp_score(round(overall, 4)),
         details={
             "total_products": total_products,
             "type_errors": type_errors,

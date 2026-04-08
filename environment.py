@@ -153,6 +153,8 @@ class DataQualityEnv:
         self._done = (curr_score >= threshold) or (self._step >= self._max_steps)
 
         obs = self._build_observation(report, last_result=last_result, task_data=task_data)
+        # Final safety: clamp reward once more before returning
+        reward = clamp_score(reward)
         info = {
             "episode_id": self._episode_id,
             "cumulative_reward": round(self._cumulative_reward, 4),
@@ -182,7 +184,7 @@ class DataQualityEnv:
             step=self._step,
             max_steps=self._max_steps,
             current_score=clamp_score(self._prev_score),
-            cumulative_reward=clamp_score(round(self._cumulative_reward, 4)),
+            cumulative_reward=round(self._cumulative_reward, 4),
             tables=tables,
             db_row_counts=row_counts,
         )
@@ -238,6 +240,8 @@ class DataQualityEnv:
         last_result: str,
         task_data: Dict,
     ) -> DataQualityObservation:
+        # Safety: ensure overall_score is clamped before building observation
+        report.overall_score = clamp_score(report.overall_score)
         return DataQualityObservation(
             task_id=self._task_id,
             task_description=task_data["meta"].description,
