@@ -68,8 +68,14 @@ client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 # ---------------------------------------------------------------------------
 
 def clamp_val(v: float, low: float = 0.01, high: float = 0.99) -> float:
-    """Clamp value to (0, 1) exclusive range."""
-    return max(low, min(high, v))
+    """Clamp value to (0, 1) exclusive range. Ensures strictly between bounds."""
+    result = max(low, min(high, v))
+    # Additional safety check for floating-point edge cases
+    if result <= 0.0:
+        result = low
+    if result >= 1.0:
+        result = high
+    return result
 
 # ---------------------------------------------------------------------------
 # Mandatory stdout log helpers

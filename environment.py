@@ -15,7 +15,7 @@ import sqlite3
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from tasks import TASK_REGISTRY, QualityReport, get_task, clamp_score
 from data_generator import TASK_DB_GENERATORS
@@ -59,6 +59,16 @@ class DataQualityState(BaseModel):
     cumulative_reward: float
     tables: List[str]
     db_row_counts: Dict[str, int]
+    
+    @model_validator(mode="after")
+    def _ensure_current_score_valid(self):
+        """Ensure current_score is never exactly 0.0 or 1.0."""
+        if self.current_score is not None:
+            if self.current_score <= 0.0:
+                self.current_score = 0.01
+            elif self.current_score >= 1.0:
+                self.current_score = 0.99
+        return self
 
 
 # ---------------------------------------------------------------------------

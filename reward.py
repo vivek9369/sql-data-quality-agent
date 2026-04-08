@@ -88,10 +88,15 @@ def compute_reward(
     result = round(total, 4)
 
     # Final safety after rounding: ensure still strictly in (0, 1)
+    # This handles potential floating-point rounding to exact 0 or 1
     if result <= 0.0:
         result = 0.01
-    if result >= 1.0:
+    elif result >= 1.0:
         result = 0.99
+    
+    # Additional safety: if somehow we still have exact boundaries due to float precision
+    if result == 0.0 or result == 1.0:
+        result = 0.5  # fallback to middle of range
 
     return result
 

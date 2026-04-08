@@ -12,11 +12,15 @@ Each task defines:
 
 import sqlite3
 from typing import Dict, Any, Callable, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 def clamp_score(score: float, low: float = 0.01, high: float = 0.99) -> float:
-    """Clamp score to (0, 1) exclusive — required by OpenEnv Phase 2 validator."""
+    """Clamp score to (0, 1) exclusive — required by OpenEnv Phase 2 validator.
+    
+    Use ONLY for overall_score and reward values.
+    Do NOT use for ratio fields (null_ratio, duplicate_ratio, etc.) which can be 0.0-1.0.
+    """
     try:
         score = float(score)
     except (TypeError, ValueError):
@@ -31,26 +35,18 @@ def clamp_score(score: float, low: float = 0.01, high: float = 0.99) -> float:
 
 
 class QualityReport(BaseModel):
-    null_ratio: float = 0.01
-    duplicate_ratio: float = 0.01
-    type_error_ratio: float = 0.01
-    constraint_violation_ratio: float = 0.01
-    value_error_ratio: float = 0.01
+    null_ratio: float = 0.0
+    duplicate_ratio: float = 0.0
+    type_error_ratio: float = 0.0
+    constraint_violation_ratio: float = 0.0
+    value_error_ratio: float = 0.0
     overall_score: float = 0.01
     details: Dict[str, Any] = {}
 
-    @field_validator(
-        "null_ratio",
-        "duplicate_ratio",
-        "type_error_ratio",
-        "constraint_violation_ratio",
-        "value_error_ratio",
-        "overall_score",
-        mode="before",
-    )
+    @field_validator("overall_score", mode="before")
     @classmethod
-    def _clamp_to_valid_range(cls, v: float) -> float:
-        """Auto-clamp every float field to (0, 1) exclusive — OpenEnv Phase 2 requirement."""
+    def _clamp_overall_score(cls, v: float) -> float:
+        """Clamp overall_score to (0, 1) exclusive — OpenEnv Phase 2 requirement."""
         try:
             v = float(v)
         except (TypeError, ValueError):
@@ -62,6 +58,34 @@ class QualityReport(BaseModel):
         if clamped >= 1.0:
             clamped = 0.99
         return clamped
+    
+    @field_validator(
+        "null_ratio",
+        "duplicate_ratio", 
+        "type_error_ratio",
+        "constraint_violation_ratio",
+        "value_error_ratio",
+        mode="before",
+    )
+    @classmethod
+    def _validate_ratios(cls, v: float) -> float:
+        """Clamp ratio fields to [0, 1] inclusive — ratios CAN be exactly 0 or 1."""
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = 0.0
+        # Ratios can be 0.0 or 1.0, just ensure in valid range
+        return max(0.0, min(1.0, v))
+    
+    @model_validator(mode="after")
+    def _final_check(self):
+        """Final safety check: overall_score must NEVER be exactly 0.0 or 1.0."""
+        if self.overall_score is not None:
+            if self.overall_score <= 0.0:
+                self.overall_score = 0.01
+            elif self.overall_score >= 1.0:
+                self.overall_score = 0.99
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -86,12 +110,11 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
     total_nulls = null_emails + null_phones
     null_ratio = total_nulls / total_nullable_fields if total_nullable_fields > 0 else 0.0
 
-    # Raw score before clamping
-    raw_score = 1.0 - null_ratio
-    score = clamp_score(raw_score)
+    # Scale score directly to (0.01, 0.99) to avoid exact 0 or 1
+    score = 0.01 + (1.0 - null_ratio) * 0.98
 
     return QualityReport(
-        null_ratio=clamp_score(round(null_ratio, 4)),
+        null_ratio=round(null_ratio, 4),
         overall_score=clamp_score(round(score, 4)),
         details={
             "total_rows": total,
@@ -123,11 +146,11 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     duplicate_count = cur.fetchone()[0]
 
     duplicate_ratio = duplicate_count / total if total > 0 else 0.0
-    raw_score = 1.0 - duplicate_ratio
-    score = clamp_score(raw_score)
+    # Scale score directly to (0.01, 0.99) to avoid exact 0 or 1
+    score = 0.01 + (1.0 - duplicate_ratio) * 0.98
 
     return QualityReport(
-        duplicate_ratio=clamp_score(round(duplicate_ratio, 4)),
+        duplicate_ratio=round(duplicate_ratio, 4),
         overall_score=clamp_score(round(score, 4)),
         details={
             "total_rows": total,
@@ -188,17 +211,18 @@ def grade_constraint_cascade(conn: sqlite3.Connection) -> QualityReport:
     case_errors = sum(1 for c in categories if c not in VALID_CATEGORIES)
     case_error_ratio = case_errors / total_products if total_products > 0 else 0.0
 
-    # Weighted composite (4 dimensions)
+    # Weighted composite (4 dimensions) scaled to (0.01, 0.99)
     type_score  = 1.0 - type_error_ratio
     fk_score    = 1.0 - fk_ratio
     neg_score   = 1.0 - neg_ratio
     case_score  = 1.0 - case_error_ratio
-    overall = (0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score)
+    overall_raw = (0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score)
+    overall = 0.01 + overall_raw * 0.98  # Scale to (0.01, 0.99)
 
     return QualityReport(
-        type_error_ratio=clamp_score(round(type_error_ratio, 4)),
-        constraint_violation_ratio=clamp_score(round(fk_ratio, 4)),
-        value_error_ratio=clamp_score(round(neg_ratio, 4)),
+        type_error_ratio=round(type_error_ratio, 4),
+        constraint_violation_ratio=round(fk_ratio, 4),
+        value_error_ratio=round(neg_ratio, 4),
         overall_score=clamp_score(round(overall, 4)),
         details={
             "total_products": total_products,
