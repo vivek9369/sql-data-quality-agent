@@ -35,11 +35,11 @@ def clamp_score(score: float, low: float = 0.01, high: float = 0.99) -> float:
 
 
 class QualityReport(BaseModel):
-    null_ratio: float = 0.0
-    duplicate_ratio: float = 0.0
-    type_error_ratio: float = 0.0
-    constraint_violation_ratio: float = 0.0
-    value_error_ratio: float = 0.0
+    null_ratio: float = 0.01
+    duplicate_ratio: float = 0.01
+    type_error_ratio: float = 0.01
+    constraint_violation_ratio: float = 0.01
+    value_error_ratio: float = 0.01
     overall_score: float = 0.01
     details: Dict[str, Any] = {}
 
@@ -73,9 +73,13 @@ class QualityReport(BaseModel):
         try:
             v = float(v)
         except (TypeError, ValueError):
-            v = 0.0
-        # Ratios can be 0.0 or 1.0, just ensure in valid range
-        return max(0.0, min(1.0, v))
+            v = 0.01
+        clamped = max(0.01, min(0.99, v))
+        if clamped <= 0.0:
+            clamped = 0.01
+        if clamped >= 1.0:
+            clamped = 0.99
+        return clamped
     
     @model_validator(mode="after")
     def _final_check(self):

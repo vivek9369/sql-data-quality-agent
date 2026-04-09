@@ -90,7 +90,7 @@ class DataQualityEnv:
         self._step: int = 0
         self._max_steps: int = 0
         self._prev_score: float = 0.01
-        self._cumulative_reward: float = 0.0
+        self._cumulative_reward: float = 0.01
         self._done: bool = False
         self._seed: int = 42
 
@@ -115,7 +115,7 @@ class DataQualityEnv:
         self._step = 0
         self._max_steps = task_data["meta"].max_steps
         self._done = False
-        self._cumulative_reward = 0.0
+        self._cumulative_reward = 0.01
         self._seed = seed
 
         # Initial quality score
@@ -195,7 +195,7 @@ class DataQualityEnv:
             step=self._step,
             max_steps=self._max_steps,
             current_score=clamp_score(self._prev_score),
-            cumulative_reward=round(self._cumulative_reward, 4),
+            cumulative_reward=max(0.01, round(self._cumulative_reward, 4)),
             tables=tables,
             db_row_counts=row_counts,
         )
