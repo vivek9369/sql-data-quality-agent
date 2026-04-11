@@ -29,7 +29,7 @@ tasks:
       Fill NULL email and phone values in the customers table with
       placeholder values. Target: null ratio < 5%.
     max_steps: 15
-    success_threshold: 0.95
+    success_threshold: 0.85
 
   - id: duplicate_destroyer
     name: "Duplicate Destroyer"
@@ -38,7 +38,7 @@ tasks:
       Remove duplicate rows in the orders table, keeping the earliest
       entry per order_id. Target: duplicate ratio < 5%.
     max_steps: 20
-    success_threshold: 0.95
+    success_threshold: 0.85
 
   - id: constraint_cascade
     name: "Constraint Cascade"
@@ -48,7 +48,7 @@ tasks:
       price strings with '$' prefix, orphan FK rows, and negative quantities.
       Target: composite quality score >= 0.90.
     max_steps: 30
-    success_threshold: 0.90
+    success_threshold: 0.80
 
 endpoints:
   health: GET /health

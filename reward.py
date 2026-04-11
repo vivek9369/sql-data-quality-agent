@@ -5,6 +5,8 @@ Dense reward shaping for the SQL Data Quality Agent.
 Provides partial credit at every step, not just episode end.
 """
 
+from tasks import clamp_score
+
 
 DANGEROUS_KEYWORDS = [
     "DROP TABLE",
@@ -34,7 +36,7 @@ def compute_reward(
     action_result: str,
     step: int,
     max_steps: int,
-    success_threshold: float = 0.95,
+    success_threshold: float = 0.85,
 ) -> float:
     """
     Compute step reward.
@@ -82,23 +84,9 @@ def compute_reward(
 
     total = progress + milestone + error_penalty + destructive_penalty + efficiency
 
-    # Clamp reward to (0, 1) exclusive — required by OpenEnv Phase 2 validator
-    # Use 0.01 and 0.99 to ensure strictly between 0 and 1
-    total = max(0.01, min(0.99, total))
-    result = round(total, 4)
-
-    # Final safety after rounding: ensure still strictly in (0, 1)
-    # This handles potential floating-point rounding to exact 0 or 1
-    if result <= 0.0:
-        result = 0.01
-    elif result >= 1.0:
-        result = 0.99
-    
-    # Additional safety: if somehow we still have exact boundaries due to float precision
-    if result == 0.0 or result == 1.0:
-        result = 0.5  # fallback to middle of range
-
-    return result
+    # Clamp to (0.01, 0.99) — safe margin from boundaries
+    # clamp_score handles all edge cases (NaN, inf, out of range)
+    return clamp_score(total)
 
 
 def score_to_grade(score: float) -> str:

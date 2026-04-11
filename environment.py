@@ -89,7 +89,7 @@ class DataQualityEnv:
         self._episode_id: Optional[str] = None
         self._step: int = 0
         self._max_steps: int = 0
-        self._prev_score: float = 0.01
+        self._prev_score: float = 0.5
         self._cumulative_reward: float = 0.01
         self._done: bool = False
         self._seed: int = 42
@@ -115,7 +115,7 @@ class DataQualityEnv:
         self._step = 0
         self._max_steps = task_data["meta"].max_steps
         self._done = False
-        self._cumulative_reward = 0.01
+        self._cumulative_reward = 0.0
         self._seed = seed
 
         # Initial quality score
@@ -156,7 +156,7 @@ class DataQualityEnv:
         )
         # Belt-and-suspenders: clamp once more
         reward = clamp_score(reward)
-        self._cumulative_reward += reward
+        self._cumulative_reward = clamp_score(self._cumulative_reward + reward)
         self._prev_score = curr_score
 
         # Check done conditions
@@ -164,7 +164,7 @@ class DataQualityEnv:
         self._done = (curr_score >= threshold) or (self._step >= self._max_steps)
 
         obs = self._build_observation(report, last_result=last_result, task_data=task_data)
-        # Final safety clamp on reward before returning
+        # Final safety clamp on reward before returning — redundant but safe
         reward = clamp_score(reward)
         info = {
             "episode_id": self._episode_id,
@@ -195,7 +195,7 @@ class DataQualityEnv:
             step=self._step,
             max_steps=self._max_steps,
             current_score=clamp_score(self._prev_score),
-            cumulative_reward=max(0.01, round(self._cumulative_reward, 4)),
+            cumulative_reward=clamp_score(self._cumulative_reward),
             tables=tables,
             db_row_counts=row_counts,
         )
