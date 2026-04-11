@@ -68,20 +68,25 @@ client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 # ---------------------------------------------------------------------------
 
 def clamp_val(v: float, low: float = 0.01, high: float = 0.99) -> float:
-    """Clamp value to (0, 1) exclusive range. Ensures strictly between bounds."""
+    \"\"\"Clamp value to (0, 1) exclusive range. Ensures strictly between bounds.
+    
+    Handles NaN, Inf, and floating-point edge cases.
+    Returns safe default (0.5) for any invalid input.
+    \"\"\"
     try:
         v = float(v)
     except (TypeError, ValueError):
         return 0.5
-    # NaN / Inf
+    # NaN / Inf / negative infinity
     if v != v or v == float('inf') or v == float('-inf'):
         return 0.5
+    # Clamp to bounds
     result = max(low, min(high, v))
-    # Additional safety check for floating-point edge cases
+    # Additional safety check: if result is exactly 0.0 or 1.0, return safe middle
     if result <= 0.0:
-        result = low
+        return low
     if result >= 1.0:
-        result = high
+        return high
     return round(result, 4)
 
 # ---------------------------------------------------------------------------

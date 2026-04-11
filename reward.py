@@ -86,6 +86,14 @@ def compute_reward(
 
     # Clamp to (0.01, 0.99) — safe margin from boundaries
     # clamp_score handles all edge cases (NaN, inf, out of range)
+    # Additional safety: if somehow the total is NaN or extreme, return 0.5
+    try:
+        total = float(total)
+        if total != total or total == float('inf') or total == float('-inf'):
+            return clamp_score(0.5)
+    except (TypeError, ValueError):
+        return clamp_score(0.5)
+    
     return clamp_score(total)
 
 
