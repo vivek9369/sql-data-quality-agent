@@ -5,7 +5,7 @@ Dense reward shaping for the SQL Data Quality Agent.
 Provides partial credit at every step, not just episode end.
 """
 
-from tasks import clamp_score
+from tasks import clamp_score, _safe_float
 
 
 DANGEROUS_KEYWORDS = [
@@ -48,8 +48,10 @@ def compute_reward(
     - Destructive penalty: large penalty for mass DELETE or DROP
     - Efficiency bonus: small bonus for finishing early
 
-    Returns a value strictly in (0, 1) — never exactly 0.0 or 1.0.
+    Returns a value strictly in (0.01, 0.99) — never exactly 0.0 or 1.0.
     """
+    prev_score = _safe_float(prev_score)
+    curr_score = _safe_float(curr_score)
     delta = curr_score - prev_score
 
     # --- Main progress signal ---
@@ -76,7 +78,7 @@ def compute_reward(
     elif _is_destructive_no_where(sql):
         destructive_penalty = -0.5
 
-    # --- Efficiency bonus: reward finishing early (uses task-specific threshold) ---
+    # --- Efficiency bonus: reward finishing early ---
     efficiency = 0.0
     if curr_score >= success_threshold:
         remaining_steps = max_steps - step
@@ -84,16 +86,7 @@ def compute_reward(
 
     total = progress + milestone + error_penalty + destructive_penalty + efficiency
 
-    # Clamp to (0.01, 0.99) — safe margin from boundaries
-    # clamp_score handles all edge cases (NaN, inf, out of range)
-    # Additional safety: if somehow the total is NaN or extreme, return 0.5
-    try:
-        total = float(total)
-        if total != total or total == float('inf') or total == float('-inf'):
-            return clamp_score(0.5)
-    except (TypeError, ValueError):
-        return clamp_score(0.5)
-    
+    # Clamp to (0.01, 0.99) — clamp_score handles all edge cases
     return clamp_score(total)
 
 

@@ -29,6 +29,7 @@ Usage:
 """
 
 import json
+import math
 import os
 import sys
 import textwrap
@@ -67,27 +68,37 @@ client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 # Score clamping — Phase 2 requires all scores strictly in (0, 1)
 # ---------------------------------------------------------------------------
 
-def clamp_val(v: float, low: float = 0.01, high: float = 0.99) -> float:
-    """Clamp value to (0, 1) exclusive range. Ensures strictly between bounds.
+def clamp_val(v: Any, low: float = 0.01, high: float = 0.99) -> float:
+    """Clamp value to (0, 1) exclusive range.
     
-    Handles NaN, Inf, and floating-point edge cases.
+    Handles NaN, Inf, None, strings, and all edge cases.
     Returns safe default (0.5) for any invalid input.
+    CRITICAL: After clamping, the formatted string with :.2f
+    will never be '0.00' or '1.00'.
     """
     try:
         v = float(v)
     except (TypeError, ValueError):
         return 0.5
-    # NaN / Inf / negative infinity
-    if v != v or v == float('inf') or v == float('-inf'):
+    if math.isnan(v) or math.isinf(v):
         return 0.5
-    # Clamp to bounds
     result = max(low, min(high, v))
-    # Additional safety check: if result is exactly 0.0 or 1.0, return safe middle
-    if result <= 0.0:
-        return low
-    if result >= 1.0:
-        return high
+    # Final paranoid check
+    if result <= 0.0 or result >= 1.0:
+        return 0.5
     return round(result, 4)
+
+
+def fmt_reward(v: float) -> str:
+    """Format a reward value as a 2-decimal string, guaranteed not '0.00' or '1.00'."""
+    clamped = clamp_val(v)
+    s = f"{clamped:.2f}"
+    # Paranoid final check on the formatted string itself
+    if s == "0.00":
+        return "0.01"
+    if s == "1.00":
+        return "0.99"
+    return s
 
 # ---------------------------------------------------------------------------
 # Mandatory stdout log helpers
@@ -108,10 +119,10 @@ def log_step(
     action_clean = action.replace("\n", " ").replace("\r", "").strip()
     error_val = error if error else "null"
     done_val = str(done).lower()
-    clamped_reward = clamp_val(reward)
+    reward_str = fmt_reward(reward)
     print(
         f"[STEP] step={step} action={action_clean!r} "
-        f"reward={clamped_reward:.2f} done={done_val} error={error_val}",
+        f"reward={reward_str} done={done_val} error={error_val}",
         flush=True,
     )
 
@@ -120,8 +131,7 @@ def log_end(success: bool, steps: int, rewards: List[float]) -> None:
     # Guard: if no steps taken, emit at least one valid reward
     if not rewards:
         rewards = [0.01]
-    clamped_rewards = [clamp_val(r) for r in rewards]
-    rewards_str = ",".join(f"{r:.2f}" for r in clamped_rewards)
+    rewards_str = ",".join(fmt_reward(r) for r in rewards)
     success_val = str(success).lower()
     print(
         f"[END] success={success_val} steps={steps} rewards={rewards_str}",
@@ -179,18 +189,26 @@ def build_user_prompt(obs: Dict, step: int) -> str:
     sample_str = "\n".join(sample_parts)
     hints = "\n".join(f"  - {h}" for h in obs.get("hints", []))
 
+    # Safely get quality report values with defaults
+    overall = clamp_val(report.get('overall_score', 0.5))
+    null_r = clamp_val(report.get('null_ratio', 0.01))
+    dup_r = clamp_val(report.get('duplicate_ratio', 0.01))
+    type_r = clamp_val(report.get('type_error_ratio', 0.01))
+    fk_r = clamp_val(report.get('constraint_violation_ratio', 0.01))
+    val_r = clamp_val(report.get('value_error_ratio', 0.01))
+
     return textwrap.dedent(f"""
 TASK: {obs['task_description']}
 STEP: {step}
 LAST ACTION RESULT: {obs.get('last_action_result', 'N/A')}
 
 QUALITY REPORT:
-  Overall Score      : {report['overall_score']:.4f}
-  Null Ratio         : {report.get('null_ratio', 0.0):.4f}
-  Duplicate Ratio    : {report.get('duplicate_ratio', 0.0):.4f}
-  Type Error Ratio   : {report.get('type_error_ratio', 0.0):.4f}
-  FK Violation Ratio : {report.get('constraint_violation_ratio', 0.0):.4f}
-  Value Error Ratio  : {report.get('value_error_ratio', 0.0):.4f}
+  Overall Score      : {overall:.4f}
+  Null Ratio         : {null_r:.4f}
+  Duplicate Ratio    : {dup_r:.4f}
+  Type Error Ratio   : {type_r:.4f}
+  FK Violation Ratio : {fk_r:.4f}
+  Value Error Ratio  : {val_r:.4f}
 
 DATABASE SCHEMA:
 {schema_str}
@@ -256,7 +274,7 @@ def run_task(task_id: str, seed: int = 42) -> None:
                 ).strip()
 
             # Execute action
-            reward = 0.0
+            reward = 0.01  # safe non-zero default
             done = False
             error: Optional[str] = None
 
@@ -282,8 +300,8 @@ def run_task(task_id: str, seed: int = 42) -> None:
 
             except Exception as step_err:
                 error = str(step_err)
-                rewards.append(clamp_val(0.0))
-                log_step(step=step, action=sql, reward=clamp_val(0.0), done=True, error=error)
+                rewards.append(0.01)
+                log_step(step=step, action=sql, reward=0.01, done=True, error=error)
                 steps_taken = step
                 break
 

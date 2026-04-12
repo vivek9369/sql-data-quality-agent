@@ -10,6 +10,7 @@ Each task defines:
   - grader: computes a quality score 0.0–1.0 from a live SQLite connection
 """
 
+import math
 import sqlite3
 from typing import Dict, Any, Callable, Optional
 from pydantic import BaseModel, field_validator, model_validator
@@ -22,49 +23,48 @@ from pydantic import BaseModel, field_validator, model_validator
 _SCORE_LOW = 0.01
 _SCORE_HIGH = 0.99
 
-def clamp_score(score: float, low: float = _SCORE_LOW, high: float = _SCORE_HIGH) -> float:
-    """Clamp score strictly into (0, 1) exclusive — required by OpenEnv Phase 2 validator.
-    
-    Default range: [0.01, 0.99] — safe margin from both boundaries.
-    Handles NaN, Inf, and floating-point edge cases.
-    """
+
+def _safe_float(v: Any) -> float:
+    """Convert any value to a safe float. Returns 0.5 for any invalid input."""
     try:
-        score = float(score)
+        f = float(v)
     except (TypeError, ValueError):
         return 0.5
-    # NaN check
-    if score != score:
+    if math.isnan(f) or math.isinf(f):
         return 0.5
-    # Inf check
-    if score == float('inf') or score == float('-inf'):
-        return 0.5
+    return f
+
+
+def clamp_score(score: Any, low: float = _SCORE_LOW, high: float = _SCORE_HIGH) -> float:
+    """Clamp score strictly into (0, 1) exclusive — required by OpenEnv Phase 2 validator.
+
+    Default range: [0.01, 0.99] — safe margin from both boundaries.
+    Handles NaN, Inf, None, strings, and floating-point edge cases.
+    
+    CRITICAL: The validator checks that no score equals exactly 0.0 or 1.0.
+    This function guarantees the output is always in [low, high].
+    """
+    f = _safe_float(score)
     # Clamp to specified range
-    result = max(low, min(high, score))
-    # Paranoid final check: if result is exactly 0.0 or 1.0, use 0.5
-    # This handles floating-point rounding edge cases
+    result = max(low, min(high, f))
+    # Final paranoid guard against floating-point weirdness
     if result <= 0.0 or result >= 1.0:
-        result = 0.5
+        return 0.5
     return round(result, 4)
 
 
-def clamp_ratio(ratio: float) -> float:
+def clamp_ratio(ratio: Any) -> float:
     """Clamp a ratio value strictly into (0, 1) exclusive.
     Uses [0.001, 0.999] to preserve more precision for ratios.
     """
-    try:
-        ratio = float(ratio)
-    except (TypeError, ValueError):
-        return 0.5  # Safe middle value instead of 0.01
-    if ratio != ratio:  # NaN
-        return 0.5
-    # Clamp to [0.001, 0.999] with floating point safety
-    if ratio <= 0.0:
+    f = _safe_float(ratio)
+    if f <= 0.0:
         return 0.001
-    if ratio >= 1.0:
+    if f >= 1.0:
         return 0.999
-    result = max(0.001, min(0.999, ratio))
+    result = max(0.001, min(0.999, f))
     if result <= 0.0 or result >= 1.0:
-        result = 0.5
+        return 0.5
     return round(result, 4)
 
 
@@ -79,7 +79,7 @@ class QualityReport(BaseModel):
 
     @field_validator("overall_score", mode="before")
     @classmethod
-    def _clamp_overall_score(cls, v: float) -> float:
+    def _clamp_overall_score(cls, v: Any) -> float:
         """Clamp overall_score strictly into (0, 1) — OpenEnv Phase 2 requirement."""
         return clamp_score(v)
 
@@ -92,23 +92,34 @@ class QualityReport(BaseModel):
         mode="before",
     )
     @classmethod
-    def _validate_ratios(cls, v: float) -> float:
+    def _validate_ratios(cls, v: Any) -> float:
         """Clamp ratio fields — keep in (0, 1) exclusive for safety."""
         return clamp_ratio(v)
 
     @model_validator(mode="after")
     def _final_check(self):
-        """Absolute final guard: overall_score strictly in (0, 1)."""
+        """Absolute final guard: overall_score and all ratios strictly in (0, 1)."""
+        # Guard overall_score
         s = self.overall_score
-        if s is None or s != s or s <= 0.0 or s >= 1.0:
+        if s is None or (isinstance(s, float) and (math.isnan(s) or math.isinf(s))) or s <= 0.0 or s >= 1.0:
             self.overall_score = 0.5
-        # Also guard all ratios
+        # Guard all ratios
         for field_name in ["null_ratio", "duplicate_ratio", "type_error_ratio",
                            "constraint_violation_ratio", "value_error_ratio"]:
             val = getattr(self, field_name)
-            if val is None or val != val or val <= 0.0 or val >= 1.0:
+            if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))) or val <= 0.0 or val >= 1.0:
                 setattr(self, field_name, 0.01)
         return self
+
+    def model_dump(self, **kwargs) -> Dict[str, Any]:
+        """Override model_dump to ensure all numeric fields are clamped on serialization."""
+        d = super().model_dump(**kwargs)
+        # Final safety net before JSON serialization
+        d["overall_score"] = clamp_score(d.get("overall_score", 0.5))
+        for ratio_field in ["null_ratio", "duplicate_ratio", "type_error_ratio",
+                            "constraint_violation_ratio", "value_error_ratio"]:
+            d[ratio_field] = clamp_ratio(d.get(ratio_field, 0.01))
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +132,7 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
     cur.execute("SELECT COUNT(*) FROM customers")
     total = cur.fetchone()[0]
     if total == 0:
-        return QualityReport(overall_score=clamp_score(0.5))
+        return QualityReport(overall_score=0.5)
 
     cur.execute("SELECT COUNT(*) FROM customers WHERE email IS NULL")
     null_emails = cur.fetchone()[0]
@@ -131,15 +142,15 @@ def grade_null_patrol(conn: sqlite3.Connection) -> QualityReport:
 
     total_nullable_fields = total * 2  # email + phone
     total_nulls = null_emails + null_phones
-    null_ratio = total_nulls / total_nullable_fields if total_nullable_fields > 0 else 0.0
+    null_ratio_raw = total_nulls / total_nullable_fields if total_nullable_fields > 0 else 0.0
 
-    # Scale score: 0% nulls -> 0.85, 100% nulls -> 0.15 (safe range preventing edge cases)
-    quality = 1.0 - null_ratio
-    score = 0.15 + quality * 0.7  # Maps quality [0, 1] -> [0.15, 0.85]
+    # Scale score: 0% nulls -> 0.85, 100% nulls -> 0.15 (safe range)
+    quality = 1.0 - null_ratio_raw
+    score = 0.15 + quality * 0.70  # Maps quality [0, 1] -> [0.15, 0.85]
 
     return QualityReport(
-        null_ratio=clamp_ratio(null_ratio),
-        overall_score=clamp_score(score),
+        null_ratio=null_ratio_raw,
+        overall_score=score,
         details={
             "total_rows": total,
             "null_emails": null_emails,
@@ -158,7 +169,7 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     cur.execute("SELECT COUNT(*) FROM orders")
     total = cur.fetchone()[0]
     if total == 0:
-        return QualityReport(overall_score=clamp_score(0.5))
+        return QualityReport(overall_score=0.5)
 
     # Count rows that are NOT the earliest row for their order_id
     cur.execute("""
@@ -169,14 +180,14 @@ def grade_duplicate_destroyer(conn: sqlite3.Connection) -> QualityReport:
     """)
     duplicate_count = cur.fetchone()[0]
 
-    duplicate_ratio = duplicate_count / total if total > 0 else 0.0
-    # Scale score: 0% dupes -> 0.85, 100% dupes -> 0.15 (safe range preventing edge cases)
-    quality = 1.0 - duplicate_ratio
-    score = 0.15 + quality * 0.7  # Maps quality [0, 1] -> [0.15, 0.85]
+    duplicate_ratio_raw = duplicate_count / total if total > 0 else 0.0
+    # Scale score: 0% dupes -> 0.85, 100% dupes -> 0.15 (safe range)
+    quality = 1.0 - duplicate_ratio_raw
+    score = 0.15 + quality * 0.70  # Maps quality [0, 1] -> [0.15, 0.85]
 
     return QualityReport(
-        duplicate_ratio=clamp_ratio(duplicate_ratio),
-        overall_score=clamp_score(score),
+        duplicate_ratio=duplicate_ratio_raw,
+        overall_score=score,
         details={
             "total_rows": total,
             "duplicate_rows": duplicate_count,
@@ -211,7 +222,7 @@ def grade_constraint_cascade(conn: sqlite3.Connection) -> QualityReport:
         except (ValueError, TypeError):
             type_errors += 1
 
-    type_error_ratio = type_errors / total_products if total_products > 0 else 0.0
+    type_error_ratio_raw = type_errors / total_products if total_products > 0 else 0.0
 
     # --- FK violations in inventory ---
     cur.execute("SELECT COUNT(*) FROM inventory")
@@ -222,33 +233,33 @@ def grade_constraint_cascade(conn: sqlite3.Connection) -> QualityReport:
         WHERE product_id NOT IN (SELECT product_id FROM products)
     """)
     fk_violations = cur.fetchone()[0]
-    fk_ratio = fk_violations / total_inv if total_inv > 0 else 0.0
+    fk_ratio_raw = fk_violations / total_inv if total_inv > 0 else 0.0
 
     # --- Negative quantities ---
     cur.execute("SELECT COUNT(*) FROM inventory WHERE quantity < 0")
     neg_qty = cur.fetchone()[0]
-    neg_ratio = neg_qty / total_inv if total_inv > 0 else 0.0
+    neg_ratio_raw = neg_qty / total_inv if total_inv > 0 else 0.0
 
     # --- Mixed-case category names ---
     VALID_CATEGORIES = {"Electronics", "Clothing", "Food", "Books", "Tools"}
     cur.execute("SELECT category FROM products")
     categories = [row[0] for row in cur.fetchall()]
     case_errors = sum(1 for c in categories if c not in VALID_CATEGORIES)
-    case_error_ratio = case_errors / total_products if total_products > 0 else 0.0
+    case_error_ratio_raw = case_errors / total_products if total_products > 0 else 0.0
 
-    # Weighted composite (4 dimensions) scaled to (0.15, 0.85) to prevent edge cases
-    type_score  = 1.0 - type_error_ratio
-    fk_score    = 1.0 - fk_ratio
-    neg_score   = 1.0 - neg_ratio
-    case_score  = 1.0 - case_error_ratio
+    # Weighted composite (4 dimensions) scaled to (0.15, 0.85)
+    type_score  = 1.0 - type_error_ratio_raw
+    fk_score    = 1.0 - fk_ratio_raw
+    neg_score   = 1.0 - neg_ratio_raw
+    case_score  = 1.0 - case_error_ratio_raw
     quality = (0.30 * type_score) + (0.30 * fk_score) + (0.20 * neg_score) + (0.20 * case_score)
-    overall = 0.15 + quality * 0.7  # Maps quality [0, 1] -> [0.15, 0.85]
+    overall = 0.15 + quality * 0.70  # Maps quality [0, 1] -> [0.15, 0.85]
 
     return QualityReport(
-        type_error_ratio=clamp_ratio(type_error_ratio),
-        constraint_violation_ratio=clamp_ratio(fk_ratio),
-        value_error_ratio=clamp_ratio(neg_ratio),
-        overall_score=clamp_score(overall),
+        type_error_ratio=type_error_ratio_raw,
+        constraint_violation_ratio=fk_ratio_raw,
+        value_error_ratio=neg_ratio_raw,
+        overall_score=overall,
         details={
             "total_products": total_products,
             "type_errors": type_errors,

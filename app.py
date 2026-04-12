@@ -4,12 +4,12 @@ app.py
 FastAPI server exposing the SQL Data Quality Agent as an OpenEnv HTTP API.
 
 Endpoints:
-  GET  /health          → health check (required for HF Space ping)
-  GET  /tasks           → list all available tasks
-  POST /reset           → start a new episode
-  POST /step            → take one action
-  GET  /state           → current environment state
-  GET  /docs            → auto-generated Swagger UI (FastAPI built-in)
+  GET  /health          -> health check (required for HF Space ping)
+  GET  /tasks           -> list all available tasks
+  POST /reset           -> start a new episode
+  POST /step            -> take one action
+  GET  /state           -> current environment state
+  GET  /docs            -> auto-generated Swagger UI (FastAPI built-in)
 """
 
 import os
@@ -17,10 +17,11 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, field_validator
 
 from environment import DataQualityEnv, DataQualityAction, DataQualityObservation, DataQualityState
-from tasks import list_tasks, clamp_score
+from tasks import list_tasks, clamp_score, clamp_ratio
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -31,7 +32,7 @@ app = FastAPI(
     description=(
         "An OpenEnv environment where an AI agent acts as a Data Quality Engineer, "
         "fixing dirty SQL databases through iterative SQL statements. "
-        "Supports 3 tasks: easy → medium → hard."
+        "Supports 3 tasks: easy -> medium -> hard."
     ),
     version="1.0.0",
     docs_url="/docs",
@@ -47,8 +48,37 @@ app.add_middleware(
 )
 
 # Single global environment instance (stateful per-container)
-# For production multi-agent use, this would be session-keyed.
 env = DataQualityEnv()
+
+
+# ---------------------------------------------------------------------------
+# Helper: recursively clamp all float values in a dict that look like scores
+# ---------------------------------------------------------------------------
+
+def _clamp_response_scores(obj: Any) -> Any:
+    """Recursively walk a dict/list and clamp any float values that are
+    exactly 0.0 or 1.0, or any float keys named *score*, *ratio*, *reward*."""
+    if isinstance(obj, dict):
+        result = {}
+        for k, v in obj.items():
+            if isinstance(v, float):
+                # Clamp any float field whose name suggests it's a score/ratio/reward
+                key_lower = str(k).lower()
+                if any(word in key_lower for word in ["score", "ratio", "reward"]):
+                    result[k] = clamp_score(v) if "score" in key_lower or "reward" in key_lower else clamp_ratio(v)
+                elif v <= 0.0 or v >= 1.0:
+                    # For other floats that happen to be 0.0 or 1.0, leave them
+                    # (they might be legitimate values like amounts, counts, etc.)
+                    result[k] = v
+                else:
+                    result[k] = v
+            else:
+                result[k] = _clamp_response_scores(v)
+        return result
+    elif isinstance(obj, list):
+        return [_clamp_response_scores(item) for item in obj]
+    else:
+        return obj
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +90,6 @@ class ResetRequest(BaseModel):
     seed: int = 42
 
     class Config:
-        # Allow the body to be entirely absent (validator sends no body)
         extra = "ignore"
 
 
@@ -74,6 +103,12 @@ class StepResponse(BaseModel):
     reward: float
     done: bool
     info: Dict[str, Any]
+
+    @field_validator("reward", mode="before")
+    @classmethod
+    def _clamp_reward(cls, v: float) -> float:
+        """Ensure reward is strictly in (0, 1) before serialization."""
+        return clamp_score(v)
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +159,7 @@ def get_tasks():
     return {"tasks": list_tasks()}
 
 
-@app.post("/reset", response_model=DataQualityObservation, tags=["environment"])
+@app.post("/reset", tags=["environment"])
 async def reset(request: Request):
     """
     Start a new episode for the given task.
@@ -143,14 +178,17 @@ async def reset(request: Request):
         pass  # No/invalid body — use defaults
     try:
         obs = env.reset(task_id=task_id, seed=seed)
-        return obs
+        # Serialize and clamp all score/ratio/reward fields
+        response_data = obs.model_dump()
+        response_data = _clamp_response_scores(response_data)
+        return JSONResponse(content=response_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
-@app.post("/step", response_model=StepResponse, tags=["environment"])
+@app.post("/step", tags=["environment"])
 def step(request: StepRequest):
     """
     Execute one SQL action.
@@ -161,18 +199,32 @@ def step(request: StepRequest):
         obs, reward, done, info = env.step(action)
         # Final safety: clamp reward at the API boundary
         reward = clamp_score(reward)
-        return StepResponse(observation=obs, reward=reward, done=done, info=info)
+        # Also clamp cumulative_reward in info
+        if "cumulative_reward" in info:
+            info["cumulative_reward"] = clamp_score(info["cumulative_reward"])
+        # Serialize and clamp all score/ratio/reward fields
+        response_data = {
+            "observation": obs.model_dump(),
+            "reward": clamp_score(reward),
+            "done": done,
+            "info": info,
+        }
+        response_data = _clamp_response_scores(response_data)
+        return JSONResponse(content=response_data)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
-@app.get("/state", response_model=DataQualityState, tags=["environment"])
+@app.get("/state", tags=["environment"])
 def state():
     """Return current episode metadata and state."""
     try:
-        return env.state()
+        st = env.state()
+        response_data = st.model_dump()
+        response_data = _clamp_response_scores(response_data)
+        return JSONResponse(content=response_data)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

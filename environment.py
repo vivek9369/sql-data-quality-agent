@@ -11,13 +11,14 @@ Implements the standard OpenEnv interface:
 All models are typed Pydantic BaseModels for spec compliance.
 """
 
+import math
 import sqlite3
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field, model_validator
 
-from tasks import TASK_REGISTRY, QualityReport, get_task, clamp_score
+from tasks import TASK_REGISTRY, QualityReport, get_task, clamp_score, clamp_ratio
 from data_generator import TASK_DB_GENERATORS
 from reward import compute_reward
 
@@ -59,15 +60,12 @@ class DataQualityState(BaseModel):
     cumulative_reward: float
     tables: List[str]
     db_row_counts: Dict[str, int]
-    
+
     @model_validator(mode="after")
-    def _ensure_current_score_valid(self):
-        """Ensure current_score is never exactly 0.0 or 1.0."""
-        if self.current_score is not None:
-            if self.current_score <= 0.0:
-                self.current_score = 0.01
-            elif self.current_score >= 1.0:
-                self.current_score = 0.99
+    def _ensure_scores_valid(self):
+        """Ensure current_score and cumulative_reward are never exactly 0.0 or 1.0."""
+        self.current_score = clamp_score(self.current_score)
+        self.cumulative_reward = clamp_score(self.cumulative_reward)
         return self
 
 
@@ -115,7 +113,7 @@ class DataQualityEnv:
         self._step = 0
         self._max_steps = task_data["meta"].max_steps
         self._done = False
-        self._cumulative_reward = 0.0
+        self._cumulative_reward = 0.01  # Start at safe non-zero
         self._seed = seed
 
         # Initial quality score
@@ -164,11 +162,9 @@ class DataQualityEnv:
         self._done = (curr_score >= threshold) or (self._step >= self._max_steps)
 
         obs = self._build_observation(report, last_result=last_result, task_data=task_data)
-        # Final safety clamp on reward before returning — redundant but safe
-        reward = clamp_score(reward)
         info = {
             "episode_id": self._episode_id,
-            "cumulative_reward": round(self._cumulative_reward, 4),
+            "cumulative_reward": clamp_score(self._cumulative_reward),
             "step": self._step,
             "success": curr_score >= threshold,
             "sql_result": result,
@@ -253,6 +249,12 @@ class DataQualityEnv:
     ) -> DataQualityObservation:
         # Safety: ensure overall_score is clamped before building observation
         report.overall_score = clamp_score(report.overall_score)
+        # Also ensure all ratio fields are clamped
+        report.null_ratio = clamp_ratio(report.null_ratio)
+        report.duplicate_ratio = clamp_ratio(report.duplicate_ratio)
+        report.type_error_ratio = clamp_ratio(report.type_error_ratio)
+        report.constraint_violation_ratio = clamp_ratio(report.constraint_violation_ratio)
+        report.value_error_ratio = clamp_ratio(report.value_error_ratio)
         return DataQualityObservation(
             task_id=self._task_id,
             task_description=task_data["meta"].description,
